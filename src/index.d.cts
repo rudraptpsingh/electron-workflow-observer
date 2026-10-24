@@ -173,3 +173,25 @@ export function injectPerfHud(options?: { position?: 'bottom-right' | 'bottom-le
   notifyStall(ms: number, blocker?: string): void
   destroy(): void
 } | null
+
+export interface SetupWorkflowObserverOptions {
+  app?: any
+  ipcMain?: IpcLike
+  mode?: ObserverMode
+  sink?: string
+  htmlReport?: boolean
+  slowIpcMs?: number
+  stallMs?: number
+  maxEvents?: number
+  hud?: boolean
+  silent?: boolean
+}
+
+export function setupWorkflowObserver(options?: SetupWorkflowObserverOptions): {
+  observer: Observer
+  tracer: MainPerfTrace
+  hud: ReturnType<typeof injectPerfHud>
+  stop: () => Promise<void>
+  exportHtml: (outPath?: string) => string
+}
+
