@@ -8,7 +8,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { SCHEMA_VERSION, MODES, validateEvent } = require('./schema.cjs')
 
-const OBSERVER_VERSION = '0.0.0'
+const { version: OBSERVER_VERSION } = require('../package.json')
 
 function createObserver({
   mode = 'light',
