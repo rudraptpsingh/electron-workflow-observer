@@ -1,0 +1,67 @@
+{
+  "name": "electron-workflow-observer",
+  "version": "0.1.0",
+  "description": "App-neutral, privacy-preserving performance profiling and workflow observation for Electron (IPC latency, event-loop stalls, memory sampling, and Playwright fixture).",
+  "keywords": [
+    "electron",
+    "profiling",
+    "performance",
+    "ipc",
+    "playwright",
+    "event-loop",
+    "stall-detection",
+    "freeze-detector",
+    "memory-leak",
+    "cdp",
+    "e2e-testing"
+  ],
+  "author": "Rudra Pratap Singh",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rudraptpsingh/electron-workflow-observer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rudraptpsingh/electron-workflow-observer/issues"
+  },
+  "homepage": "https://github.com/rudraptpsingh/electron-workflow-observer#readme",
+  "main": "src/index.cjs",
+  "module": "src/index.mjs",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.mjs",
+      "require": "./src/index.cjs",
+      "default": "./src/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "electron-workflow-observer": "bin/cli.cjs"
+  },
+  "files": [
+    "src",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.30.0",
+    "electron": ">=20.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@playwright/test": {
+      "optional": true
+    },
+    "electron": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

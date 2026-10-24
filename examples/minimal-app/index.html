@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Observer sample</title>
+  </head>
+  <body>
+    <button id="ping" type="button">Ping</button>
+    <button id="fail" type="button">Fail</button>
+    <output id="count">0</output>
+    <output id="failures">0</output>
+    <script>
+      let count = 0
+      let failures = 0
+      // A private-looking argument: it must never appear in observer output.
+      const note = '/private/Client Wedding/IMG_0001.ARW?token=secret'
+      document.getElementById('ping').addEventListener('click', async () => {
+        await window.sample.ping(note)
+        document.getElementById('count').textContent = String(++count)
+      })
+      document.getElementById('fail').addEventListener('click', async () => {
+        await window.sample.fail().catch(() => {})
+        document.getElementById('failures').textContent = String(++failures)
+      })
+    </script>
+  </body>
+</html>
