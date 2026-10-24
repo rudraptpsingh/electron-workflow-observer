@@ -1,6 +1,6 @@
 {
   "name": "electron-workflow-observer",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "App-neutral, privacy-preserving performance profiling and workflow observation for Electron (IPC latency, event-loop stalls, memory sampling, and Playwright fixture).",
   "keywords": [
     "electron",

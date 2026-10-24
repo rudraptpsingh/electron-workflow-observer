@@ -7,6 +7,7 @@ const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
 const { SCHEMA_VERSION, MODES, validateEvent } = require('./schema.cjs')
+const { buildDetailedSummary } = require('./advisor.cjs')
 
 const OBSERVER_VERSION = '0.2.1'
 
@@ -62,9 +63,14 @@ function createObserver({
       return events.slice()
     },
     summary() {
-      const byKind = {}
-      for (const event of events) byKind[event.kind] = (byKind[event.kind] || 0) + 1
-      return { mode, events: events.length, byKind, overflowed }
+      return buildDetailedSummary(events, mode, overflowed)
+    },
+    getSummary() {
+      return buildDetailedSummary(events, mode, overflowed)
+    },
+    getAdvice() {
+      const s = buildDetailedSummary(events, mode, overflowed)
+      return s.advice || []
     },
     finalize() {
       if (overflowed) throw new Error('Observer overflowed')

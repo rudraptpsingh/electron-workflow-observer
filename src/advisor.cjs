@@ -181,7 +181,124 @@ function generateAdvice(events, summary = {}) {
     }
   }
 
+  // 5. Storage Tier Hardware Advisor Rules
+  const storageTiers = summary?.storageTiers || {}
+  if (storageTiers['camera-card']) {
+    const cardStats = storageTiers['camera-card']
+    if (cardStats.avgMs > 100 || cardStats.maxMs > 300) {
+      suggestions.push({
+        level: 'warning',
+        tier: 'camera-card',
+        title: `Camera memory card latency bottleneck detected (peak: ${cardStats.maxMs}ms)`,
+        advice: `Camera SD/CFExpress cards have slow random read characteristics. Enforce single-worker sequential access (concurrency: 1) during card indexing to prevent bus contention.`,
+      })
+    }
+  }
+
+  if (storageTiers['external-hdd']) {
+    const hddStats = storageTiers['external-hdd']
+    if (hddStats.maxMs > 150) {
+      suggestions.push({
+        level: 'warning',
+        tier: 'external-hdd',
+        title: `High latency on external spinning hard drive (peak: ${hddStats.maxMs}ms)`,
+        advice: `Mechanical HDDs suffer high seek latency under concurrent random I/O. Use batched asynchronous writes and avoid synchronous fsync on the main process.`,
+      })
+    }
+  }
+
   return suggestions
+}
+
+function buildDetailedSummary(events = [], mode = 'light', overflowed = false) {
+  const byKind = {}
+  const channelData = {}
+  const tierData = {}
+  let stalls = 0
+  let worstStallMs = 0
+  let failures = 0
+
+  for (const event of events) {
+    byKind[event.kind] = (byKind[event.kind] || 0) + 1
+    if (event.kind === 'main-stall') {
+      stalls += 1
+      if (event.stallMs > worstStallMs) worstStallMs = event.stallMs
+    }
+    if (event.kind === 'ipc-handle') {
+      const c = (channelData[event.channel] ||= {
+        calls: 0,
+        failed: 0,
+        durations: [],
+        bytesOut: 0,
+        maxMs: 0,
+      })
+      c.calls += 1
+      if (!event.ok) {
+        c.failed += 1
+        failures += 1
+      }
+      c.durations.push(event.durationMs)
+      if (event.durationMs > c.maxMs) c.maxMs = event.durationMs
+      c.bytesOut += event.bytesOut || 0
+
+      if (event.storageTier) {
+        const t = (tierData[event.storageTier] ||= {
+          calls: 0,
+          failed: 0,
+          totalMs: 0,
+          maxMs: 0,
+          bytesOut: 0,
+        })
+        t.calls += 1
+        if (!event.ok) t.failed += 1
+        t.totalMs += event.durationMs
+        if (event.durationMs > t.maxMs) t.maxMs = event.durationMs
+        t.bytesOut += event.bytesOut || 0
+      }
+    }
+  }
+
+  const channels = {}
+  for (const [name, data] of Object.entries(channelData)) {
+    data.durations.sort((a, b) => a - b)
+    const total = data.durations.reduce((acc, v) => acc + v, 0)
+    const p50 = data.durations[Math.floor(data.durations.length * 0.5)] || 0
+    channels[name] = {
+      calls: data.calls,
+      failed: data.failed,
+      maxMs: data.maxMs,
+      p50Ms: Math.round(p50 * 100) / 100,
+      avgMs: Math.round((total / data.calls) * 100) / 100,
+      bytesOut: data.bytesOut,
+    }
+  }
+
+  const storageTiers = {}
+  for (const [tier, data] of Object.entries(tierData)) {
+    storageTiers[tier] = {
+      calls: data.calls,
+      failed: data.failed,
+      totalMs: Math.round(data.totalMs * 100) / 100,
+      avgMs: Math.round((data.totalMs / data.calls) * 100) / 100,
+      maxMs: data.maxMs,
+      bytesOut: data.bytesOut,
+    }
+  }
+
+  const summary = {
+    mode,
+    events: events.length,
+    byKind,
+    overflowed,
+    stalls,
+    worstStallMs,
+    failures,
+    channels,
+    storageTiers,
+  }
+
+  summary.advice = generateAdvice(events, summary)
+  return summary
 }
 
 function formatMarkdownSummary(summary, budgetResult = null, advice = []) {
@@ -246,4 +363,4 @@ function assertBudgets(events, options = {}) {
   }
 }
 
-module.exports = { evaluateBudget, generateAdvice, formatMarkdownSummary, assertBudgets }
+module.exports = { evaluateBudget, generateAdvice, formatMarkdownSummary, assertBudgets, buildDetailedSummary }

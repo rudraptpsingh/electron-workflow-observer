@@ -157,6 +157,8 @@ function setupWorkflowObserver(options = {}) {
     stop: flush,
     exportHtml,
     assertBudgets: (budgetOptions) => assertBudgets(observer.events, budgetOptions),
+    getSummary: () => observer.getSummary(),
+    getAdvice: () => observer.getAdvice(),
   }
 }
 

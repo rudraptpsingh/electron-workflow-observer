@@ -116,4 +116,90 @@ describe('Budget Evaluator & Optimization Advisor', () => {
     assert.equal(fail.passed, false)
     assert.ok(fail.violations.length >= 1)
   })
+
+  it('buildDetailedSummary computes channels and storage tiers with advice', () => {
+    const { buildDetailedSummary } = require('../src/advisor.cjs')
+    const sampleEvents = [
+      ...events,
+      {
+        kind: 'ipc-handle',
+        channel: 'card:readRaw',
+        ok: true,
+        durationMs: 320,
+        bytesOut: 50000000,
+        storageTier: 'camera-card',
+        schemaVersion: 1,
+        sanitized: true,
+        monotonicMs: 400,
+        sessionId: 's1',
+        clockId: 'c1',
+        eventId: 'e5',
+      },
+      {
+        kind: 'ipc-handle',
+        channel: 'card:readRaw',
+        ok: true,
+        durationMs: 290,
+        bytesOut: 50000000,
+        storageTier: 'camera-card',
+        schemaVersion: 1,
+        sanitized: true,
+        monotonicMs: 750,
+        sessionId: 's1',
+        clockId: 'c1',
+        eventId: 'e6',
+      },
+      {
+        kind: 'ipc-handle',
+        channel: 'hdd:writeArchive',
+        ok: true,
+        durationMs: 180,
+        bytesOut: 1000000,
+        storageTier: 'external-hdd',
+        schemaVersion: 1,
+        sanitized: true,
+        monotonicMs: 1100,
+        sessionId: 's1',
+        clockId: 'c1',
+        eventId: 'e7',
+      },
+    ]
+
+    const detailed = buildDetailedSummary(sampleEvents, 'light', false)
+    assert.equal(detailed.events, 7)
+    assert.equal(detailed.stalls, 1)
+    assert.equal(detailed.worstStallMs, 220)
+    assert.ok(detailed.channels['card:readRaw'])
+    assert.equal(detailed.channels['card:readRaw'].calls, 2)
+    assert.ok(detailed.storageTiers['camera-card'])
+    assert.equal(detailed.storageTiers['camera-card'].calls, 2)
+    assert.ok(detailed.storageTiers['camera-card'].avgMs > 200)
+    assert.ok(detailed.storageTiers['external-hdd'])
+    assert.equal(detailed.storageTiers['external-hdd'].calls, 1)
+
+    // Storage tier advice should be generated
+    assert.ok(detailed.advice.some((a) => a.tier === 'camera-card'))
+    assert.ok(detailed.advice.some((a) => a.tier === 'external-hdd'))
+  })
+
+  it('collector createObserver exposes getSummary and getAdvice', () => {
+    const { createObserver } = require('../src/collector.cjs')
+    const obs = createObserver({ mode: 'light' })
+    obs.record('ipc-handle', {
+      channel: 'test:ping',
+      ok: true,
+      durationMs: 2,
+      bytesOut: 10,
+      storageTier: 'internal-nvme',
+    })
+
+    const summary = obs.getSummary()
+    assert.equal(typeof summary, 'object')
+    assert.equal(summary.channels['test:ping'].calls, 1)
+    assert.ok(summary.storageTiers['internal-nvme'])
+    assert.equal(summary.storageTiers['internal-nvme'].calls, 1)
+
+    const advice = obs.getAdvice()
+    assert.ok(Array.isArray(advice))
+  })
 })
