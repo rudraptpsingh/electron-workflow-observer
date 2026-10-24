@@ -27,6 +27,7 @@ export const {
   formatMarkdownSummary,
   generateHtmlReport,
   injectPerfHud,
+  setupWorkflowObserver,
 } = cjs
 
 export default cjs

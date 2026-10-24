@@ -10,4 +10,5 @@ module.exports = {
   ...require('./advisor.cjs'),
   ...require('./waterfall.cjs'),
   ...require('./hud.cjs'),
+  ...require('./setup.cjs'),
 }

@@ -6,34 +6,21 @@
 
 > **App-neutral, privacy-preserving performance profiling and workflow observation for Electron.**
 > 
-> Tracks IPC latency and payload sizes, pinpoints main-process event loop stalls with active blockers, samples Chromium renderer memory via CDP, provides drop-in Playwright fixtures, and enforces CI performance budgets with interactive waterfall timeline reports. Zero runtime dependencies.
+> Profile IPC latency and payload sizes, pinpoint main-process event loop stalls with active blockers, sample Chromium renderer memory via CDP, enforce CI performance budgets in Playwright, and inspect interactive offline waterfall timelines. Zero runtime dependencies.
 
 ---
 
-## The Problem with Electron Profiling Today
+## Why electron-workflow-observer?
 
-1. **The Main-Process Blindspot:** Standard Chromium DevTools only measures the renderer. When an Electron app beachballs or stutters, the root cause is almost always synchronous disk I/O, native module calls, or heavy computation blocking Node's main event loop.
-2. **APM Privacy Risks:** Commercial APM agents (Datadog, Sentry, New Relic) intercept full IPC arguments, user payloads, error traces, and filesystem paths. Shipping these diagnostics in desktop environments (photo editors, healthcare, enterprise, creative tools) violates privacy policies.
-3. **Heavy Instrumentation Lag:** Traditional profilers monkeypatch entire runtimes, introducing the very latency they attempt to observe.
-4. **No Performance Regression Gates in CI:** Teams typically write Playwright E2E tests for *functional correctness*, but performance regressions (e.g., an IPC handler slowing from 15ms to 120ms or freezing the event loop) slip through unnoticed into production.
-
----
-
-## Key Features
-
-- ⚡ **Zero Runtime Dependencies:** Pure Node.js & standard Electron APIs.
-- 🔒 **Strict Privacy Contract:** Rejects filesystem paths, URLs, and arbitrary payloads. Only records opaque IDs, channel labels, boolean outcomes, payload bytes, and durations.
-- ⏱️ **Main-Thread Stall & Freeze Detector:** Heartbeat timer tracks event loop delays and names the exact in-flight IPC handlers that overlapped the freeze.
-- 📦 **IPC Payload Size Bins:** Measures approximate response bytes (`bytesOut`) without capturing or leaking user content.
-- 🧠 **CDP Memory Profiling:** Connects to Chrome DevTools Protocol to query `Performance.getMetrics` for real JS heap size, DOM node count, and listener leaks.
-- 🎭 **Playwright CI Assertions:** Built-in `assertBudget(observer, options)` helper to fail tests immediately on latency or stall regressions.
-- 🌊 **Interactive Waterfall Timeline:** Single-command standalone HTML waterfall visualizer (`export-html`) showing concurrent IPC calls, stalls, and payload sizes with zero CDN requests.
-- 💡 **Smart Optimization Advisor:** Prescriptive suggestions detecting Chatty IPC loops, main-thread blockers, and DOM/heap bloat.
-- 📊 **CLI Budget Enforcer:** `assert-budget` command with `$GITHUB_STEP_SUMMARY` markdown integration for CI.
+| Profiler / APM | Main-Process Stalls | Privacy & PII | Runtime Overhead | CI Regression Gates |
+| :--- | :--- | :--- | :--- | :--- |
+| **Chromium DevTools** | ❌ Renderer only (blind to Node main thread) | ⚠️ Captures full URLs & network headers | High | ❌ Manual profiling only |
+| **Sentry / Datadog / New Relic** | ⚠️ Generic APM crash reporting | ❌ Captures full IPC args, paths, error traces | Moderate to high | ❌ Production telemetry only |
+| **electron-workflow-observer** | ✅ **Heartbeat locator attributes freezes to handlers** | 🔒 **Strict contract: Zero paths, Zero PII, Zero payloads** | ⚡ **<0.1ms overhead** | ✅ **Drop-in Playwright fixtures & CLI assert-budget** |
 
 ---
 
-## Quickstart
+## ⚡ Quickstart: 1-Line Setup
 
 Install the package:
 
@@ -41,71 +28,48 @@ Install the package:
 npm install electron-workflow-observer
 ```
 
-### 1. Main Process: Observe IPC Latency & Settled Outcomes
+### In Your Electron Main Process (`main.js` / `main.ts`):
 
-Wrap your `ipcMain` in one line before registering handlers:
+Add one line before registering your IPC handlers:
 
 ```javascript
 // main.js
 const { app, ipcMain } = require('electron')
-const { createObserver, observeIpcMain } = require('electron-workflow-observer')
+const { setupWorkflowObserver } = require('electron-workflow-observer')
 
-// Create an observer session writing to a private local log
-const observer = createObserver({
-  mode: 'light',
-  sink: './diagnostics/workflow-run.jsonl',
-})
+// 1-line setup: wraps IPC, detects event-loop stalls, and auto-exports waterfall report on quit!
+setupWorkflowObserver({ app, ipcMain })
 
-// Automatically measures duration, channel, success/failure, and payload size
-observeIpcMain(ipcMain, observer)
-
+// Register your handlers as normal:
 ipcMain.handle('files:loadProject', async (event, projectId) => {
   return await loadProjectFromDisk(projectId)
 })
 ```
 
----
-
-### 2. Main Process: Event-Loop Freeze & Blocker Locator
-
-Detect main-thread UI freezes and pinpoint the blocking handlers:
-
-```javascript
-const { installMainPerfTrace } = require('electron-workflow-observer')
-
-// Starts a lightweight heartbeat timer
-const tracer = installMainPerfTrace({
-  ipc: ipcMain,
-  observer,       // Optional: records 'main-stall' directly into observer log
-  slowIpcMs: 250, // Flag any single IPC handler taking >= 250ms
-  stallMs: 150,   // Detect event loop delays >= 150ms
-  log: (line) => console.log(line), // Emits [PERF:trace] JSON entries
-})
-
-app.on('will-quit', async () => {
-  await tracer.stop()
-})
-```
-
-**Sample Output on Stall:**
-```json
-{
-  "kind": "main-stall",
-  "ms": 320,
-  "endedAtMs": 1729765200100,
-  "inflight": [
-    { "channel": "fs:readRawDirectory", "runningMs": 318, "finished": true },
-    { "channel": "analytics:ping", "runningMs": 10, "finished": false }
-  ]
-}
-```
-*(Notice how `fs:readRawDirectory` was identified as the 318ms blocker that caused the 320ms stall).*
+### What Happens Automatically:
+1. **Zero-Overhead IPC Tracing:** Automatically records invocation duration, channel name, success/failure status, and response payload size (`bytesOut`).
+2. **Main-Thread Freeze Detection:** A lightweight heartbeat timer detects event-loop delays and flags the exact IPC handlers that caused the freeze.
+3. **Automatic Waterfall Report on Quit:** When your app closes, an interactive, zero-dependency HTML waterfall timeline is saved to `./diagnostics/workflow.html`.
+4. **Strict Privacy Contract:** Only records opaque IDs, channel labels, boolean outcomes, payload bytes, and durations. **Zero filesystem paths or customer data can ever leak.**
 
 ---
 
-### 3. Playwright E2E Integration & CI Budget Assertion
+## 🌊 Interactive Waterfall & Grouped Profiler
 
-Catch performance regressions directly in your Playwright end-to-end tests:
+Every run automatically produces a standalone, offline HTML profile (`workflow.html`):
+
+- **Two-Column Split Layout:** A fixed left pane with monospace channel names, duration pills, payload sizes, and outcome badges, aligned 1:1 with an interactive Gantt timeline ruler.
+- **Freeze Alert Banner:** Prominently highlights main-process UI freezes (e.g. `⚠️ Event loop stall: 72ms attributed to io:heavyChecksumScan`).
+- **Grouped by Channel Tab:** Aggregates identical calls (e.g. 35 rapid culling keypresses), displaying Call Count, Total Time, Average Duration, P95, and a visual `% of Total IPC Time` progress bar. Flags "Chatty IPC" loops.
+- **External Duration Labels:** Sub-millisecond bars are never squished or truncated into unreadable pills—labels render cleanly outside narrow bars.
+- **Instant Search & Filter:** Filter calls by channel name in real time.
+- **Air-Gapped & Offline:** Zero external CDN requests or remote fonts. 100% self-contained.
+
+---
+
+## 🎭 CI Regression Gates & Playwright Testing
+
+Prevent performance regressions before code merges into `main`. Assert latency budgets directly in Playwright E2E tests:
 
 ```typescript
 // e2e/performance.spec.ts
@@ -113,33 +77,33 @@ import { test, expect } from '@playwright/test'
 import { _electron as electron } from 'playwright'
 import { createObserver, attachObserver, assertBudget } from 'electron-workflow-observer'
 
-test('Export workflow adheres to IPC latency and memory budgets', async () => {
+test('Import workflow adheres to latency and freeze budgets', async () => {
   const electronApp = await electron.launch({ args: ['.'] })
   const page = await electronApp.firstWindow()
 
   const observer = createObserver({ mode: 'light', sink: 'test-results/run.jsonl' })
   const attached = await attachObserver({ electronApp, page, observer })
 
-  // 1. Mark and sample baseline memory
-  attached.mark('before-export')
+  // 1. Mark baseline & sample renderer memory via CDP
+  attached.mark('before-import')
   await attached.sampleMemory()
 
-  // 2. Execute user action
-  await page.click('[data-testid="export-button"]')
-  await page.waitForSelector('[data-testid="export-finished"]')
+  // 2. Perform user action
+  await page.click('[data-testid="import-button"]')
+  await page.waitForSelector('[data-testid="import-finished"]')
 
-  // 3. Post-Action Memory
-  attached.mark('after-export')
+  // 3. Sample post-action memory
+  attached.mark('after-import')
   await attached.sampleMemory()
 
-  // 4. Assert Performance Budget in CI (Throws on regression!)
+  // 4. Assert Performance Budget in CI (Throws and fails CI on regression!)
   assertBudget(observer, {
-    maxStallMs: 100,       // Fail if main thread froze > 100ms
-    maxStallCount: 0,      // Fail if any freeze occurred
-    maxIpcMs: 50,          // Global limit for any IPC call
-    maxFailures: 0,        // Zero failed IPC handlers allowed
+    maxStallMs: 80,        // Fail if main thread froze > 80ms
+    maxStallCount: 0,       // Fail if any UI freeze occurred
+    maxIpcMs: 50,           // Fail if any single IPC call took > 50ms
+    maxFailures: 0,         // Zero failed handlers allowed
     channelBudgets: {
-      'project:save': { maxMs: 25 },
+      'project:loadShoot': { maxMs: 30 },
     },
   })
 
@@ -150,9 +114,9 @@ test('Export workflow adheres to IPC latency and memory budgets', async () => {
 
 ---
 
-### 4. Continuous Integration (CI / GitHub Actions)
+## 🚀 GitHub Actions Integration
 
-Add performance regression gates and visual summaries directly into your GitHub Actions workflow:
+Add performance regression checks and markdown summaries to your PR workflow:
 
 ```yaml
 # .github/workflows/e2e-perf.yml
@@ -161,36 +125,35 @@ name: E2E Performance Gates
 on: [push, pull_request]
 
 jobs:
-  performance:
-    runs-on: macos-latest
+  performance-gate:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          
+      - run: npm ci
+      - run: npx playwright test e2e/performance.spec.ts
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run E2E Workflow Tests
-        run: npx playwright test
-
-      # 1. Enforce performance budgets (Fails CI job if budgets are violated!)
-      - name: Assert Performance Budget
+      # Enforce budget on diagnostic log
+      - name: Enforce Workflow Budgets
         run: |
-          npx electron-workflow-observer assert-budget test-results/run.jsonl \
-            --max-stall=150 \
-            --max-ipc=100 \
-            --max-failures=0 \
+          npx electron-workflow-observer assert-budget \
+            --sink test-results/run.jsonl \
+            --max-stall-ms 80 \
+            --max-ipc-ms 50 \
             --github-summary
 
-      # 2. Generate Interactive Waterfall Timeline
-      - name: Generate Waterfall HTML
+      # Export interactive waterfall artifact
+      - name: Export Waterfall Timeline
         if: always()
-        run: npx electron-workflow-observer export-html test-results/run.jsonl -o test-results/waterfall.html
+        run: |
+          npx electron-workflow-observer export-html \
+            --sink test-results/run.jsonl \
+            --out test-results/waterfall.html
 
-      # 3. Upload HTML Timeline Artifact
-      - name: Upload Profile Artifact
+      - name: Upload Waterfall Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -200,96 +163,68 @@ jobs:
 
 ---
 
-## Command Line Interface (CLI)
+## 🛠️ CLI Reference
 
-The package bundles a standalone CLI:
+The package ships with a self-contained CLI for CI environments:
 
 ```bash
-# 1. Validate log strictly satisfies privacy rules
-npx electron-workflow-observer validate ./diagnostics/run.jsonl
+# Validate that a JSONL log satisfies the strict privacy schema
+npx electron-workflow-observer validate --sink ./diagnostics/workflow.jsonl
 
-# 2. Print visual performance table + Smart Advisor suggestions
-npx electron-workflow-observer summarize ./diagnostics/run.jsonl --advisor
+# Generate an ASCII terminal summary of channels and latency percentiles
+npx electron-workflow-observer summarize --sink ./diagnostics/workflow.jsonl
 
-# 3. Enforce performance budget (exits 1 on regression)
-npx electron-workflow-observer assert-budget ./diagnostics/run.jsonl --max-stall=150
+# Assert performance budgets and exit 1 on regression
+npx electron-workflow-observer assert-budget \
+  --sink ./diagnostics/workflow.jsonl \
+  --max-stall-ms 80 \
+  --max-ipc-ms 50 \
+  --github-summary
 
-# 4. Generate standalone interactive HTML timeline
-npx electron-workflow-observer export-html ./diagnostics/run.jsonl -o ./report.html
-```
-
-### Visual Summary Output:
-
-```text
-=== Electron Workflow Observer Summary ===
-Total Events: 142 | Overflowed: false
-
-Event Types:
-  - session: 1
-  - mark: 4
-  - memory: 4
-  - ipc-handle: 133
-
-IPC Handler Performance:
-  IPC Channel           |  Calls  |  Failed  |  P50 (ms)  |  Max (ms)  |  Payload
-  ----------------------+---------+----------+------------+------------+---------
-  raw:extractEmbedded   |     48  |       0  |        12  |       118  |  3.4 MB
-  library:searchQuery   |     15  |       0  |         8  |        34  |   42 KB
-  window:setAppearance  |      1  |       0  |         3  |         3  |    0 B
-  db:saveMetadata       |     69  |       0  |         1  |         6  |   12 KB
-
-💡 Optimization Suggestions:
-  🟡 Chatty IPC pattern detected on 'db:saveMetadata' (69 calls)
-     This channel was called 69 times with quick execution (<5ms). Consider batching requests into a single array payload to reduce contextBridge serialization overhead.
+# Export the interactive standalone HTML waterfall report
+npx electron-workflow-observer export-html \
+  --sink ./diagnostics/workflow.jsonl \
+  --out ./diagnostics/waterfall.html
 ```
 
 ---
 
-## Privacy Guarantee
+## 🧩 Advanced Modular APIs
 
-Desktop applications frequently deal with sensitive user data (photos, medical records, financial files, private repositories). 
-
-`electron-workflow-observer` enforces an **uncompromising privacy contract**:
-1. **Never Captures Arguments or Payloads:** Function arguments, return values, exception stack traces, and IPC bodies never touch the collector.
-2. **Path & URL Rejection:** If a channel or mark label contains something resembling a local filesystem path (`/Users/...`, `C:\...`) or URL query string, the validator **strictly rejects** the event without echoing the forbidden data in error logs.
-3. **Restricted File Permissions:** Sinks are created exclusively with `0600` permissions (readable only by the process owner).
-4. **Fail-Closed Bounding:** If an event flood occurs, the collector writes one `overflow` record and permanently refuses additional events rather than risking uncontrolled memory or disk exhaustion.
-
----
-
-## API Reference
+If you need fine-grained control beyond `setupWorkflowObserver`, use the low-level modules:
 
 ### `createObserver(options)`
-- `mode`: `'off' | 'light' | 'deep'` (default: `'light'`)
-- `sink`: Optional path to write private JSONL records.
-- `maxEvents`: Maximum events before overflow protection activates (default: 2048).
-- `sessionId`: Custom string identifier.
+Creates a bounded event collector writing to memory and a secure `0600` file.
 
 ### `observeIpcMain(ipcMain, observer)`
-Wraps all registered handlers on `ipcMain` to report timing, outcomes, and payload bytes.
+Wraps all `ipcMain.handle` calls to record `ipc-handle` events into the observer.
 
 ### `installMainPerfTrace(options)`
-- `ipc`: `ipcMain` object.
-- `observer`: Optional `Observer` instance to record `main-stall` events directly.
-- `slowIpcMs`: Threshold to emit `slow-ipc` (default: 500ms).
-- `stallMs`: Threshold to emit `main-stall` (default: 200ms).
-- `tickMs`: Heartbeat interval (default: 50ms).
-- `cpuProfilePath`: Optional path to dump V8 `.cpuprofile` on exit.
+Starts the main-thread event loop heartbeat timer to detect stalls and identify overlapping handlers.
 
 ### `attachObserver({ electronApp, page, observer })`
-Attaches CDP performance metrics to an active Playwright page and Electron process.
+Hooks CDP into Chromium renderer to sample `jsHeapUsedMB`, `domNodes`, and listener counts.
 
-### `assertBudget(observer, budgetOptions)`
-Evaluates performance against specified budgets and throws an assertion error if violated.
+### `evaluateBudget(events, options)` & `generateAdvice(events, summary)`
+Runs budget verification and produces prescriptive optimization advice (Chatty IPC, Long Handlers, Memory Leaks).
 
-### `generateHtmlReport(events, summary, options)`
-Generates an interactive, zero-dependency HTML waterfall timeline.
+### `injectPerfHud()`
+Overlays a live, translucent developer HUD on your Electron windows displaying real-time FPS and event-loop stalls.
 
-### `injectPerfHud(options)`
-Injects a floating real-time FPS and stall notification widget in the renderer (development mode).
+---
+
+## 🔒 Privacy & Data Minimization Guarantee
+
+Desktop applications handle sensitive customer files (RAW photography, medical scans, financial records, client secrets). 
+
+`electron-workflow-observer` enforces a strict schema contract:
+- **No Path Data:** Any event field containing filesystem path separators (`/` or `\`) or drive letters is rejected.
+- **No URLs:** Any web URL is automatically stripped down to its origin (`https://api.example.com`).
+- **No Arbitrary Payloads:** Arguments passed across IPC are never logged. Only the approximate byte size (`bytesOut`) is computed.
+- **Fail-Closed Logs:** Logs are created with exclusive `0600` POSIX permissions (readable only by the local user process).
 
 ---
 
 ## License
 
-MIT © [Rudra Pratap Singh](https://github.com/rudraptpsingh)
+MIT © Rudra Pratap Singh
