@@ -7,4 +7,7 @@ module.exports = {
   ...require('./stall-detector.cjs'),
   ...require('./memory.cjs'),
   ...require('./playwright.cjs'),
+  ...require('./advisor.cjs'),
+  ...require('./waterfall.cjs'),
+  ...require('./hud.cjs'),
 }

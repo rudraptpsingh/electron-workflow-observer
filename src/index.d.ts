@@ -16,6 +16,10 @@ export interface ObserverSummary {
   events: number
   byKind: Record<string, number>
   overflowed: boolean
+  channels?: Record<
+    string,
+    { calls: number; failed: number; p50Ms?: number; maxMs?: number; totalBytes?: number }
+  >
 }
 
 export interface Observer {
@@ -34,6 +38,7 @@ export interface IpcCompletion {
   channel: string
   ok: boolean
   durationMs: number
+  bytesOut?: number
 }
 
 export interface IpcLike {
@@ -57,6 +62,7 @@ export interface MemoryDelta {
 
 export interface MainPerfTraceOptions {
   ipc: IpcLike
+  observer?: Observer | null
   log?: (line: string) => void
   slowIpcMs?: number
   stallMs?: number
@@ -70,11 +76,45 @@ export interface MainPerfTrace {
   stop: () => Promise<void>
 }
 
+export interface BudgetOptions {
+  maxStallMs?: number
+  maxStallCount?: number
+  maxIpcMs?: number
+  maxFailures?: number
+  maxPayloadBytes?: number
+  channelBudgets?: Record<string, { maxMs?: number; maxFailures?: number }>
+}
+
+export interface BudgetViolation {
+  type: string
+  channel?: string
+  message: string
+  actual: number
+  budget: number
+}
+
+export interface BudgetResult {
+  passed: boolean
+  violations: BudgetViolation[]
+  totalStalls: number
+  worstStallMs: number
+  totalFailures: number
+}
+
+export interface OptimizationAdvice {
+  level: 'warning' | 'critical'
+  channel?: string
+  title: string
+  advice: string
+}
+
 export const SCHEMA_VERSION: 1
 export const OBSERVER_VERSION: string
 export function validateEvent(event: unknown): ObserverEvent
 export function isLabel(value: unknown): boolean
 export function redactUrl(raw: string): string
+export function estimateSize(val: unknown): number
+
 export function createObserver(options?: {
   mode?: ObserverMode
   sink?: string
@@ -113,3 +153,23 @@ export function observerFixture(options: {
   mode?: ObserverMode
   createObserver: typeof createObserver
 }): (args: object, use: (observer: Observer) => Promise<void>, testInfo: any) => Promise<void>
+
+export function assertBudget(observer: Observer, budgetOptions?: BudgetOptions): BudgetResult
+export function evaluateBudget(events: ObserverEvent[], budgetOptions?: BudgetOptions): BudgetResult
+export function generateAdvice(events: ObserverEvent[], summary: ObserverSummary): OptimizationAdvice[]
+export function formatMarkdownSummary(
+  summary: ObserverSummary,
+  budgetResult?: BudgetResult | null,
+  advice?: OptimizationAdvice[]
+): string
+
+export function generateHtmlReport(
+  events: ObserverEvent[],
+  summary: ObserverSummary,
+  options?: { title?: string }
+): string
+
+export function injectPerfHud(options?: { position?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' }): {
+  notifyStall(ms: number, blocker?: string): void
+  destroy(): void
+} | null

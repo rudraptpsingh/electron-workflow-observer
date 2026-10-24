@@ -99,4 +99,32 @@ describe('CLI Commands & Reporting', () => {
     const exitCode = main(['summarize', filePath])
     assert.equal(exitCode, 0)
   })
+
+  it('cli main assert-budget passes when within limits', () => {
+    const filePath = join(makeTempDir(), 'budget.jsonl')
+    writeFileSync(filePath, validJsonl)
+
+    const exitCode = main(['assert-budget', filePath, '--max-stall=200', '--max-ipc=200', '--max-failures=2'])
+    assert.equal(exitCode, 0)
+  })
+
+  it('cli main assert-budget fails and exits 1 on performance regression', () => {
+    const filePath = join(makeTempDir(), 'regression.jsonl')
+    writeFileSync(filePath, validJsonl)
+
+    // db:readLargeTable takes 120ms, so max-ipc=50 should fail
+    const exitCode = main(['assert-budget', filePath, '--max-ipc=50'])
+    assert.equal(exitCode, 1)
+  })
+
+  it('cli main export-html generates interactive waterfall file', () => {
+    const tempDir = makeTempDir()
+    const jsonlPath = join(tempDir, 'timeline.jsonl')
+    const htmlPath = join(tempDir, 'timeline.html')
+    writeFileSync(jsonlPath, validJsonl)
+
+    const exitCode = main(['export-html', jsonlPath, '-o', htmlPath])
+    assert.equal(exitCode, 0)
+    assert.ok(require('node:fs').existsSync(htmlPath))
+  })
 })

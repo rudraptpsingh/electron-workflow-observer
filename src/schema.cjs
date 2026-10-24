@@ -19,6 +19,7 @@ const COMMON = [
   'kind',
   'sanitized',
 ]
+
 const KIND_FIELDS = {
   session: { mode: 'mode', observerVersion: 'id' },
   mark: { label: 'label' },
@@ -31,13 +32,30 @@ const KIND_FIELDS = {
     jsEventListeners: 'count',
   },
   'cpu-profile': { sampleCount: 'count', durationMs: 'count', nodeCount: 'count' },
+  'main-stall': { stallMs: 'count', blockerCount: 'count' },
+  'event-loop-lag': { lagMs: 'count' },
+  'threadpool-delay': { queueWaitMs: 'count' },
   overflow: {},
   error: { code: 'id' },
 }
+
+const OPTIONAL_FIELDS = {
+  'ipc-handle': { bytesOut: 'count', bytesIn: 'count' },
+  'main-stall': { topBlocker: 'label' },
+}
+
 const MODES = new Set(['off', 'light', 'deep'])
 
 function isLabel(value) {
   return typeof value === 'string' && LABEL.test(value) && !PATH_OR_URL.test(value)
+}
+
+function validateFieldType(key, value, type, fail) {
+  if (type === 'count' && (!Number.isFinite(value) || value < 0)) fail(key)
+  if (type === 'boolean' && typeof value !== 'boolean') fail(key)
+  if (type === 'id' && (typeof value !== 'string' || !ID.test(value))) fail(key)
+  if (type === 'label' && !isLabel(value)) fail(key)
+  if (type === 'mode' && !MODES.has(value)) fail(key)
 }
 
 function validateEvent(event) {
@@ -48,22 +66,34 @@ function validateEvent(event) {
   if (!event || typeof event !== 'object' || Array.isArray(event)) fail('event')
   const fields = KIND_FIELDS[event.kind]
   if (!fields) fail('kind')
-  for (const key of Object.keys(event))
-    if (!COMMON.includes(key) && !Object.hasOwn(fields, key)) fail('unknown-key')
+  const optional = OPTIONAL_FIELDS[event.kind] || {}
+
+  for (const key of Object.keys(event)) {
+    if (!COMMON.includes(key) && !Object.hasOwn(fields, key) && !Object.hasOwn(optional, key)) {
+      fail('unknown-key')
+    }
+  }
+
   if (event.schemaVersion !== SCHEMA_VERSION) fail('schemaVersion')
   if (event.sanitized !== true) fail('sanitized')
-  for (const key of ['eventId', 'sessionId', 'clockId'])
+  for (const key of ['eventId', 'sessionId', 'clockId']) {
     if (typeof event[key] !== 'string' || !ID.test(event[key])) fail(key)
+  }
   if (!Number.isFinite(event.monotonicMs) || event.monotonicMs < 0) fail('monotonicMs')
+
   for (const [key, type] of Object.entries(fields)) {
     const value = event[key]
     if (value === undefined) fail(key)
-    if (type === 'count' && (!Number.isFinite(value) || value < 0)) fail(key)
-    if (type === 'boolean' && typeof value !== 'boolean') fail(key)
-    if (type === 'id' && (typeof value !== 'string' || !ID.test(value))) fail(key)
-    if (type === 'label' && !isLabel(value)) fail(key)
-    if (type === 'mode' && !MODES.has(value)) fail(key)
+    validateFieldType(key, value, type, fail)
   }
+
+  for (const [key, type] of Object.entries(optional)) {
+    const value = event[key]
+    if (value !== undefined) {
+      validateFieldType(key, value, type, fail)
+    }
+  }
+
   return event
 }
 
@@ -77,4 +107,4 @@ function redactUrl(raw) {
   }
 }
 
-module.exports = { SCHEMA_VERSION, KIND_FIELDS, MODES, validateEvent, isLabel, redactUrl }
+module.exports = { SCHEMA_VERSION, KIND_FIELDS, OPTIONAL_FIELDS, MODES, validateEvent, isLabel, redactUrl }

@@ -1,0 +1,222 @@
+'use strict'
+
+/**
+ * Performance Budget Evaluator & Smart Optimization Advisor.
+ * Analyzes event streams to catch regressions in CI and suggest high-impact fixes.
+ */
+
+function evaluateBudget(events, options = {}) {
+  const {
+    maxStallMs = Infinity,
+    maxStallCount = 0,
+    maxIpcMs = Infinity,
+    maxFailures = 0,
+    maxPayloadBytes = Infinity,
+    channelBudgets = {},
+  } = options
+
+  const violations = []
+  let totalStalls = 0
+  let worstStallMs = 0
+  let totalFailures = 0
+
+  const channelStats = {}
+
+  for (const event of events) {
+    if (event.kind === 'main-stall') {
+      totalStalls += 1
+      if (event.stallMs > worstStallMs) worstStallMs = event.stallMs
+      if (event.stallMs > maxStallMs) {
+        violations.push({
+          type: 'stall-duration',
+          message: `Main process stalled for ${event.stallMs}ms (budget: ${maxStallMs}ms)${event.topBlocker ? ` caused by '${event.topBlocker}'` : ''}`,
+          actual: event.stallMs,
+          budget: maxStallMs,
+        })
+      }
+    }
+
+    if (event.kind === 'ipc-handle') {
+      const c = (channelStats[event.channel] ||= { calls: 0, failed: 0, maxMs: 0, maxBytes: 0 })
+      c.calls += 1
+      if (!event.ok) {
+        c.failed += 1
+        totalFailures += 1
+      }
+      if (event.durationMs > c.maxMs) c.maxMs = event.durationMs
+      if ((event.bytesOut || 0) > c.maxBytes) c.maxBytes = event.bytesOut
+
+      // Global IPC limit
+      if (event.durationMs > maxIpcMs) {
+        violations.push({
+          type: 'ipc-duration',
+          channel: event.channel,
+          message: `IPC channel '${event.channel}' took ${event.durationMs}ms (global budget: ${maxIpcMs}ms)`,
+          actual: event.durationMs,
+          budget: maxIpcMs,
+        })
+      }
+
+      // Payload size limit
+      if ((event.bytesOut || 0) > maxPayloadBytes) {
+        violations.push({
+          type: 'ipc-payload',
+          channel: event.channel,
+          message: `IPC channel '${event.channel}' transferred ${Math.round(event.bytesOut / 1024)}KB (budget: ${Math.round(maxPayloadBytes / 1024)}KB)`,
+          actual: event.bytesOut,
+          budget: maxPayloadBytes,
+        })
+      }
+
+      // Specific channel budget
+      const target = channelBudgets[event.channel]
+      if (target) {
+        if (target.maxMs != null && event.durationMs > target.maxMs) {
+          violations.push({
+            type: 'channel-duration',
+            channel: event.channel,
+            message: `Channel '${event.channel}' took ${event.durationMs}ms (specific budget: ${target.maxMs}ms)`,
+            actual: event.durationMs,
+            budget: target.maxMs,
+          })
+        }
+        if (target.maxFailures != null && c.failed > target.maxFailures) {
+          violations.push({
+            type: 'channel-failures',
+            channel: event.channel,
+            message: `Channel '${event.channel}' failed ${c.failed} times (max allowed: ${target.maxFailures})`,
+            actual: c.failed,
+            budget: target.maxFailures,
+          })
+        }
+      }
+    }
+  }
+
+  if (totalStalls > maxStallCount) {
+    violations.push({
+      type: 'stall-count',
+      message: `Encountered ${totalStalls} main-thread stalls (max allowed: ${maxStallCount})`,
+      actual: totalStalls,
+      budget: maxStallCount,
+    })
+  }
+
+  if (totalFailures > maxFailures) {
+    violations.push({
+      type: 'total-failures',
+      message: `Encountered ${totalFailures} failed IPC calls (max allowed: ${maxFailures})`,
+      actual: totalFailures,
+      budget: maxFailures,
+    })
+  }
+
+  return {
+    passed: violations.length === 0,
+    violations,
+    totalStalls,
+    worstStallMs,
+    totalFailures,
+    channelStats,
+  }
+}
+
+function generateAdvice(events, summary) {
+  const suggestions = []
+  const channels = summary.channels || {}
+
+  for (const [name, stats] of Object.entries(channels)) {
+    // 1. Chatty IPC Check
+    if (stats.calls >= 25 && stats.p50Ms != null && stats.p50Ms < 5) {
+      suggestions.push({
+        level: 'warning',
+        channel: name,
+        title: `Chatty IPC pattern detected on '${name}' (${stats.calls} calls)`,
+        advice: `This channel was called ${stats.calls} times with quick execution (<5ms). Consider batching requests into a single array payload to reduce contextBridge serialization overhead.`,
+      })
+    }
+
+    // 2. Slow / Blocking IPC
+    if (stats.maxMs >= 200) {
+      suggestions.push({
+        level: 'critical',
+        channel: name,
+        title: `High latency on '${name}' (peak: ${stats.maxMs}ms)`,
+        advice: `This handler blocked for ${stats.maxMs}ms. If doing heavy computation or disk/crypto I/O, offload to a Node.js 'worker_thread' or Electron 'utilityProcess' to keep the main event loop responsive.`,
+      })
+    }
+  }
+
+  // 3. Stalls Analysis
+  const stalls = events.filter((e) => e.kind === 'main-stall')
+  if (stalls.length > 0) {
+    const worst = stalls.reduce((w, s) => (s.stallMs > w.stallMs ? s : w), stalls[0])
+    suggestions.push({
+      level: 'critical',
+      title: `${stalls.length} Main-Thread UI freeze(s) detected (worst: ${worst.stallMs}ms)`,
+      advice: `The main event loop was unresponsive. Top identified blocker was '${worst.topBlocker || 'synchronous execution'}'. Never execute synchronous fs calls or long while loops on the main thread.`,
+    })
+  }
+
+  // 4. Memory Growth
+  const memEvents = events.filter((e) => e.kind === 'memory')
+  if (memEvents.length >= 2) {
+    const first = memEvents[0]
+    const last = memEvents[memEvents.length - 1]
+    const heapGrowth = Math.round((last.jsHeapUsedMB - first.jsHeapUsedMB) * 10) / 10
+    const domGrowth = last.domNodes - first.domNodes
+    if (heapGrowth > 50) {
+      suggestions.push({
+        level: 'warning',
+        title: `Significant JS Heap growth (+${heapGrowth}MB)`,
+        advice: `Heap increased from ${first.jsHeapUsedMB}MB to ${last.jsHeapUsedMB}MB. If this is a repeatable workflow, ensure caches are bounded and unneeded listeners/objects are dereferenced.`,
+      })
+    }
+    if (domGrowth > 500) {
+      suggestions.push({
+        level: 'warning',
+        title: `Large DOM node expansion (+${domGrowth} nodes)`,
+        advice: `DOM count grew by ${domGrowth}. Check for virtualized list leaks or component unmount retention.`,
+      })
+    }
+  }
+
+  return suggestions
+}
+
+function formatMarkdownSummary(summary, budgetResult = null, advice = []) {
+  let md = `## ⚡ Electron Performance Report\n\n`
+  md += `**Total Events:** \`${summary.events}\` | **Overflowed:** \`${summary.overflowed}\`\n\n`
+
+  if (budgetResult) {
+    if (budgetResult.passed) {
+      md += `> [!NOTE]\n> ✅ **All performance budgets passed.**\n\n`
+    } else {
+      md += `> [!CAUTION]\n> ❌ **Performance Regression Detected (${budgetResult.violations.length} violations):**\n>\n`
+      for (const v of budgetResult.violations) {
+        md += `> - ${v.message}\n`
+      }
+      md += `\n`
+    }
+  }
+
+  md += `### ⏱️ IPC Handler Performance\n\n`
+  md += `| IPC Channel | Calls | Failed | P50 (ms) | Max (ms) |\n`
+  md += `| :--- | :---: | :---: | :---: | :---: |\n`
+  for (const [name, stats] of Object.entries(summary.channels || {})) {
+    md += `| \`${name}\` | ${stats.calls} | ${stats.failed} | ${stats.p50Ms ?? 0} | **${stats.maxMs ?? 0}** |\n`
+  }
+  md += `\n`
+
+  if (advice.length > 0) {
+    md += `### 💡 Smart Optimization Suggestions\n\n`
+    for (const a of advice) {
+      const icon = a.level === 'critical' ? '🔴' : '🟡'
+      md += `- ${icon} **${a.title}**\n  ${a.advice}\n\n`
+    }
+  }
+
+  return md
+}
+
+module.exports = { evaluateBudget, generateAdvice, formatMarkdownSummary }

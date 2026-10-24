@@ -15,6 +15,7 @@ const { wrapIpcHandle } = require('./electron-main.cjs')
  */
 function installMainPerfTrace({
   ipc,
+  observer = null,
   log = (line) => console.log(line),
   slowIpcMs = 500,
   stallMs = 200,
@@ -37,7 +38,7 @@ function installMainPerfTrace({
 
   wrapIpcHandle(
     ipc,
-    ({ channel, ok, durationMs }, _event, id) => {
+    ({ channel, ok, durationMs, bytesOut }, _event, id) => {
       const endedAtMs = now()
       const started = id != null ? inflight.get(id) : undefined
       if (id != null) inflight.delete(id)
@@ -48,7 +49,16 @@ function installMainPerfTrace({
       })
       if (recent.length > RECENT_MAX) recent.shift()
       if (durationMs >= slowIpcMs) {
-        emit({ kind: 'slow-ipc', channel, ok, ms: durationMs, startedAtMs: endedAtMs - durationMs })
+        emit({ kind: 'slow-ipc', channel, ok, ms: durationMs, bytesOut, startedAtMs: endedAtMs - durationMs })
+      }
+      if (observer) {
+        try {
+          const fields = { channel, ok, durationMs }
+          if (bytesOut) fields.bytesOut = bytesOut
+          observer.record('ipc-handle', fields)
+        } catch {
+          /* observer may be bounded/off */
+        }
       }
     },
     ({ channel }) => {
@@ -75,7 +85,20 @@ function installMainPerfTrace({
         runningMs: call.endedAtMs - call.startedAtMs,
         finished: true,
       }))
-    emit({ kind: 'main-stall', ms: late, endedAtMs: at, inflight: [...running, ...finished] })
+    const allBlockers = [...running, ...finished]
+    const topBlocker = allBlockers[0]?.channel
+
+    emit({ kind: 'main-stall', ms: late, endedAtMs: at, inflight: allBlockers })
+
+    if (observer) {
+      try {
+        const fields = { stallMs: Math.round(late), blockerCount: allBlockers.length }
+        if (topBlocker) fields.topBlocker = topBlocker
+        observer.record('main-stall', fields)
+      } catch {
+        /* best effort */
+      }
+    }
   }, tickMs)
   timer.unref?.()
 

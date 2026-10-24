@@ -3,6 +3,7 @@
 // Playwright-side attachment. Takes an ElectronApplication and Page from the
 // caller, so this package does not depend on a Playwright version.
 const { sampleMemory } = require('./memory.cjs')
+const { evaluateBudget } = require('./advisor.cjs')
 
 async function attachObserver({ electronApp, page, observer }) {
   if (observer.mode === 'off') {
@@ -75,4 +76,17 @@ function observerFixture({ mode = 'light', createObserver } = {}) {
   }
 }
 
-module.exports = { attachObserver, observerFixture }
+/**
+ * Enforce performance budgets in Playwright CI tests.
+ * Throws an assertion error if any budget is violated.
+ */
+function assertBudget(observer, budgetOptions = {}) {
+  const result = evaluateBudget(observer.events, budgetOptions)
+  if (!result.passed) {
+    const details = result.violations.map((v) => `  - ${v.message}`).join('\n')
+    throw new Error(`Performance Budget Regression in CI:\n${details}`)
+  }
+  return result
+}
+
+module.exports = { attachObserver, observerFixture, assertBudget }
