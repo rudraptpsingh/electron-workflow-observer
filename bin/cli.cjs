@@ -42,6 +42,7 @@ function summarize(events) {
     c.p50Ms = sorted[Math.floor((sorted.length - 1) / 2)]
     c.maxMs = sorted[sorted.length - 1]
     delete c.durations
+    if (!c.totalBytes) delete c.totalBytes
   }
   return {
     events: events.length,
@@ -135,11 +136,7 @@ function main(argv) {
 
     if (command === 'validate') {
       const result = { valid: true, events: summary.events, overflowed: summary.overflowed }
-      if (isJson) {
-        process.stdout.write(`${JSON.stringify(result)}\n`)
-      } else {
-        process.stdout.write(`✓ Validated ${summary.events} events. Privacy contract satisfied. (Overflowed: ${summary.overflowed})\n`)
-      }
+      process.stdout.write(`${JSON.stringify(result)}\n`)
       return summary.overflowed ? 1 : 0
     }
 
@@ -186,9 +183,12 @@ function main(argv) {
 
     // summarize command
     const advice = showAdvisor ? generateAdvice(events, summary) : []
+    const isTTY = Boolean(process.stdout.isTTY)
+    const wantsTable = argv.includes('--table')
+    const wantsJson = isJson || (!isTTY && !wantsTable && !isMarkdown)
 
-    if (isJson) {
-      process.stdout.write(`${JSON.stringify({ summary, advice }, null, 2)}\n`)
+    if (wantsJson) {
+      process.stdout.write(`${JSON.stringify(summary)}\n`)
     } else if (isMarkdown) {
       process.stdout.write(formatMarkdownSummary(summary, null, advice))
     } else {
@@ -220,7 +220,7 @@ function main(argv) {
 
     return summary.overflowed ? 1 : 0
   } catch (error) {
-    if (isJson) {
+    if (command === 'validate' || isJson) {
       process.stdout.write(`${JSON.stringify({ valid: false, error: error.message })}\n`)
     } else {
       process.stderr.write(`✗ Error: ${error.message}\n`)

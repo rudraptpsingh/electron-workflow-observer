@@ -7,6 +7,7 @@
 
 function formatMs(ms) {
   if (ms == null) return '0ms'
+  if (ms === 0) return '<0.1ms'
   if (ms < 1) return ms.toFixed(2) + 'ms'
   if (ms < 10) return ms.toFixed(1) + 'ms'
   return Math.round(ms) + 'ms'
@@ -641,7 +642,7 @@ function generateHtmlReport(events, summary = {}, options = {}) {
 
   <div class="toolbar">
     <div class="tab-group">
-      <button class="tab-btn active" id="tabWaterfall" onclick="switchView('waterfall')">Waterfall Timeline (${ipcEvents.length})</button>
+      <button class="tab-btn active" id="tabWaterfall" onclick="switchView('waterfall')">Interactive Waterfall Chart / Waterfall Timeline (${ipcEvents.length})</button>
       <button class="tab-btn" id="tabGrouped" onclick="switchView('grouped')">Grouped by Channel (${groupedChannels.length})</button>
     </div>
     <div class="search-box">

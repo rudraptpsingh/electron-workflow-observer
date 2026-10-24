@@ -45,7 +45,7 @@ function wrapIpcHandle(ipc, onComplete, onStart) {
             {
               channel,
               ok,
-              durationMs: Math.round(performance.now() - started),
+              durationMs: Math.round((performance.now() - started) * 100) / 100,
               bytesOut,
             },
             event,
