@@ -26,7 +26,7 @@ function estimateSize(val) {
   return 0
 }
 
-function wrapIpcHandle(ipc, onComplete, onStart) {
+function wrapIpcHandle(ipc, onComplete, onStart, storageTierResolver) {
   const rawHandle = ipc.handle.bind(ipc)
   ipc.handle = (channel, listener) =>
     rawHandle(channel, async (event, ...args) => {
@@ -39,18 +39,16 @@ function wrapIpcHandle(ipc, onComplete, onStart) {
           /* observation must never change the handler's behaviour */
         }
       }
-      const report = (ok, bytesOut = 0) => {
+      const report = (ok, bytesOut = 0, storageTier) => {
         try {
-          onComplete(
-            {
-              channel,
-              ok,
-              durationMs: Math.round((performance.now() - started) * 100) / 100,
-              bytesOut,
-            },
-            event,
-            token
-          )
+          const receipt = {
+            channel,
+            ok,
+            durationMs: Math.round((performance.now() - started) * 100) / 100,
+            bytesOut,
+          }
+          if (storageTier) receipt.storageTier = storageTier
+          onComplete(receipt, event, token)
         } catch {
           /* observation must never change the handler's behaviour */
         }
@@ -58,10 +56,18 @@ function wrapIpcHandle(ipc, onComplete, onStart) {
       try {
         const value = await listener(event, ...args)
         const bytesOut = estimateSize(value)
-        report(true, bytesOut)
+        let tier
+        if (typeof storageTierResolver === 'function') {
+          try { tier = storageTierResolver(channel, args, value) } catch {}
+        }
+        report(true, bytesOut, tier)
         return value
       } catch (error) {
-        report(false, 0)
+        let tier
+        if (typeof storageTierResolver === 'function') {
+          try { tier = storageTierResolver(channel, args) } catch {}
+        }
+        report(false, 0, tier)
         throw error
       }
     })

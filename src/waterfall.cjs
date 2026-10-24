@@ -49,6 +49,7 @@ function generateHtmlReport(events, summary = {}, options = {}) {
         durationMs,
         ok: Boolean(e.ok),
         bytesOut: Number(e.bytesOut) || 0,
+        storageTier: e.storageTier ? String(e.storageTier) : null,
         startRelMs,
         endRelMs: startRelMs + durationMs,
       }
@@ -379,6 +380,21 @@ function generateHtmlReport(events, summary = {}, options = {}) {
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .tier-badge {
+      font-size: 9px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      padding: 1px 5px;
+      border-radius: 3px;
+      margin-left: 6px;
+      text-transform: uppercase;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .tier-external-hdd, .tier-hdd { background: rgba(217, 119, 6, 0.2); color: #fbbf24; border: 1px solid #d97706; }
+    .tier-camera-card, .tier-card { background: rgba(147, 51, 234, 0.2); color: #c084fc; border: 1px solid #9333ea; }
+    .tier-external-ssd, .tier-ssd { background: rgba(6, 182, 212, 0.2); color: #67e8f9; border: 1px solid #06b6d4; }
+    .tier-internal-nvme, .tier-local { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
     .metrics-cell {
       display: flex;
       align-items: center;
@@ -669,6 +685,7 @@ function generateHtmlReport(events, summary = {}, options = {}) {
           <div class="channel-cell" title="${escapeHtml(e.channel)}">
             <span class="status-dot ${e.ok ? 'status-ok' : 'status-err'}"></span>
             <span class="channel-name">${escapeHtml(e.channel)}</span>
+            ${e.storageTier ? `<span class="tier-badge tier-${escapeHtml(e.storageTier)}">${escapeHtml(e.storageTier.toUpperCase())}</span>` : ''}
           </div>
           <div class="metrics-cell">
             <span class="duration-badge ${durCls}">${formatMs(e.durationMs)}</span>

@@ -103,4 +103,17 @@ describe('Budget Evaluator & Optimization Advisor', () => {
     assert.ok(md.includes('db:readLarge'))
     assert.ok(md.includes('All performance budgets passed'))
   })
+
+  it('assertBudgets returns structured pass/fail with advice and summary', () => {
+    const { assertBudgets } = require('../src/advisor.cjs')
+    const pass = assertBudgets(events, { maxStallMs: 500, maxStallCount: 2, maxIpcMs: 500, maxFailures: 5 })
+    assert.equal(pass.passed, true)
+    assert.equal(pass.violations.length, 0)
+    assert.equal(pass.summary.totalEvents, 4)
+    assert.equal(pass.summary.stalls, 1)
+
+    const fail = assertBudgets(events, { maxStallMs: 50 })
+    assert.equal(fail.passed, false)
+    assert.ok(fail.violations.length >= 1)
+  })
 })

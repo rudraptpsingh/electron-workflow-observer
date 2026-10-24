@@ -82,4 +82,17 @@ describe('Electron Main IPC Tracing', () => {
     assert.equal(ipcEvents[0].channel, 'system:ping')
     assert.equal(ipcEvents[0].ok, true)
   })
+
+  it('resolves and records storageTier when storageTierResolver is provided', async () => {
+    const ipc = createFakeIpc()
+    const reports = []
+    const resolver = (channel, args) => args[0]?.startsWith('/Volumes/HDD') ? 'external-hdd' : 'internal-nvme'
+    wrapIpcHandle(ipc, (receipt) => reports.push(receipt), null, resolver)
+
+    ipc.handle('photo:read', async (_e, path) => ({ bytes: 100 }))
+    await ipc.invoke('photo:read', '/Volumes/HDD/photo.jpg')
+
+    assert.equal(reports.length, 1)
+    assert.equal(reports[0].storageTier, 'external-hdd')
+  })
 })

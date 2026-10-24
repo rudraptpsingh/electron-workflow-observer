@@ -40,8 +40,8 @@ const KIND_FIELDS = {
 }
 
 const OPTIONAL_FIELDS = {
-  'ipc-handle': { bytesOut: 'count', bytesIn: 'count' },
-  'main-stall': { topBlocker: 'label' },
+  'ipc-handle': { bytesOut: 'count', bytesIn: 'count', storageTier: 'label', queueWaitMs: 'count' },
+  'main-stall': { topBlocker: 'label', stack: 'label' },
 }
 
 const MODES = new Set(['off', 'light', 'deep'])

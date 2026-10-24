@@ -121,9 +121,9 @@ function evaluateBudget(events, options = {}) {
   }
 }
 
-function generateAdvice(events, summary) {
+function generateAdvice(events, summary = {}) {
   const suggestions = []
-  const channels = summary.channels || {}
+  const channels = summary?.channels || {}
 
   for (const [name, stats] of Object.entries(channels)) {
     // 1. Chatty IPC Check
@@ -219,4 +219,31 @@ function formatMarkdownSummary(summary, budgetResult = null, advice = []) {
   return md
 }
 
-module.exports = { evaluateBudget, generateAdvice, formatMarkdownSummary }
+function assertBudgets(events, options = {}) {
+  const result = evaluateBudget(events, options)
+  const channels = {}
+  for (const [name, stats] of Object.entries(result.channelStats || {})) {
+    channels[name] = {
+      calls: stats.calls,
+      failed: stats.failed,
+      maxMs: stats.maxMs,
+      p50Ms: stats.maxMs,
+    }
+  }
+  const summary = { events: events.length, overflowed: false, channels }
+  const advice = generateAdvice(events, summary)
+  return {
+    passed: result.passed,
+    violations: result.violations,
+    advice,
+    summary: {
+      totalEvents: events.length,
+      stalls: result.totalStalls,
+      worstStallMs: result.worstStallMs,
+      failures: result.totalFailures,
+      channels,
+    },
+  }
+}
+
+module.exports = { evaluateBudget, generateAdvice, formatMarkdownSummary, assertBudgets }

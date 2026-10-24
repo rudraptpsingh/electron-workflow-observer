@@ -21,6 +21,7 @@ function installMainPerfTrace({
   stallMs = 200,
   tickMs = 50,
   cpuProfilePath = null,
+  storageTierResolver = null,
   now = () => Date.now(),
 }) {
   const emit = (payload) => {
@@ -38,7 +39,7 @@ function installMainPerfTrace({
 
   wrapIpcHandle(
     ipc,
-    ({ channel, ok, durationMs, bytesOut }, _event, id) => {
+    ({ channel, ok, durationMs, bytesOut, storageTier }, _event, id) => {
       const endedAtMs = now()
       const started = id != null ? inflight.get(id) : undefined
       if (id != null) inflight.delete(id)
@@ -49,12 +50,13 @@ function installMainPerfTrace({
       })
       if (recent.length > RECENT_MAX) recent.shift()
       if (durationMs >= slowIpcMs) {
-        emit({ kind: 'slow-ipc', channel, ok, ms: durationMs, bytesOut, startedAtMs: endedAtMs - durationMs })
+        emit({ kind: 'slow-ipc', channel, ok, ms: durationMs, bytesOut, storageTier, startedAtMs: endedAtMs - durationMs })
       }
       if (observer) {
         try {
           const fields = { channel, ok, durationMs }
           if (bytesOut) fields.bytesOut = bytesOut
+          if (storageTier) fields.storageTier = storageTier
           observer.record('ipc-handle', fields)
         } catch {
           /* observer may be bounded/off */
@@ -65,7 +67,8 @@ function installMainPerfTrace({
       const id = (nextId += 1)
       inflight.set(id, { channel, startedAtMs: now() })
       return id
-    }
+    },
+    storageTierResolver
   )
 
   let last = now()

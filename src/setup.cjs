@@ -6,6 +6,7 @@ const { createObserver } = require('./collector.cjs')
 const { installMainPerfTrace } = require('./stall-detector.cjs')
 const { generateHtmlReport } = require('./waterfall.cjs')
 const { injectPerfHud } = require('./hud.cjs')
+const { assertBudgets } = require('./advisor.cjs')
 
 /**
  * Ultra-simple 1-line setup for Electron applications.
@@ -34,6 +35,7 @@ function setupWorkflowObserver(options = {}) {
     maxEvents = 8192,
     hud = process.env.WORKFLOW_OBSERVER_HUD === '1',
     silent = process.env.NODE_ENV === 'test',
+    storageTierResolver = options.storageTierResolver,
   } = options
 
   // Auto-detect electron if not passed explicitly
@@ -92,6 +94,7 @@ function setupWorkflowObserver(options = {}) {
     observer,
     slowIpcMs,
     stallMs,
+    storageTierResolver,
   })
 
   // Optional Performance HUD
@@ -153,6 +156,7 @@ function setupWorkflowObserver(options = {}) {
     hud: hudInstance,
     stop: flush,
     exportHtml,
+    assertBudgets: (budgetOptions) => assertBudgets(observer.events, budgetOptions),
   }
 }
 
